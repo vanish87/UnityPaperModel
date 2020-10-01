@@ -150,7 +150,7 @@ namespace UnityPaperModel
                 this.mst?.OnDrawGizmos();
             }
 
-            this.orgmst?.OnDrawGizmos();
+            // this.orgmst?.OnDrawGizmos();
         }
         // protected GraphAdj<DualGraph.Face, DualGraph.DualEdge> msp;
         // protected void Start()

@@ -269,21 +269,14 @@ namespace UnityPaperModel
             LogTool.AssertNotNull(sharedEdge);
 
             var org = (sharedEdge.Vertex as VertexGraph.Vertex).Position;
-            var orgTo = (sharedEdge.OtherVertex as VertexGraph.Vertex).Position;
-            var axis = orgTo - org;
             var n1 = from.Normal;
             var n2 = to.Normal;
+            var axis = math.cross(n2, n1);
 
             var cos = math.dot(n1, n2);
             var angle = math.acos(cos) * Mathf.Rad2Deg;
-            var dir = math.normalize(from.Center - to.Center);
-            var dirAngle = math.dot(n1, dir);
 
-            if (dirAngle > 0) axis = -axis;
-            var mat = Matrix4x4.Translate(-org) * Matrix4x4.Rotate(Quaternion.AngleAxis(angle, axis)) * Matrix4x4.Translate(org);
-
-            //mat = Matrix4x4.Rotate(Quaternion.AngleAxis(45, new float3(-1, 0, 0)));
-            return mat;
+            return Matrix4x4.Translate(org) * Matrix4x4.Rotate(Quaternion.AngleAxis(angle, axis)) * Matrix4x4.Translate(-org);
         }
 
         public static void CalculateLocalMatrix(DualGraph graph, Face node, HashSet<IVertex> visited)
