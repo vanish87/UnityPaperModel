@@ -97,6 +97,7 @@ namespace UnityPaperModel
     {
         public class GraphFactory : IGraphFactory
         {
+            protected int currentID = 0;
             public IEdge CreateEdge(IVertex v1, IVertex v2, bool isDirectional = false)
             {
                 return new Edge() { Vertex = v1, OtherVertex = v2 };
@@ -109,7 +110,7 @@ namespace UnityPaperModel
 
             public IVertex CreateVertex()
             {
-                return new Face();
+                return new Face() { index = this.currentID++ };
             }
         }
         public class Face : IndexVertex
@@ -192,19 +193,6 @@ namespace UnityPaperModel
             public bool Contains(IEdge v)
             {
                 return this.edges.Contains(v);
-                // Debug.Log(v.GetHashCode());
-                // foreach(var vi in this.vertices)
-                // {
-                //     if(vi.Equals(v)) 
-                //     {
-                //         Debug.Log(vi.GetHashCode());
-
-                //         Debug.Log(this.vertices.Contains(v));
-
-                //         return true;
-                //     }
-                // }
-                // return false;
             }
             public override object Clone()
             {
@@ -215,6 +203,12 @@ namespace UnityPaperModel
                 }
                 return ret;
             }
+            public override int GetHashCode()
+            {
+                return base.GetHashCode();
+            //  return string.Format("{0:F2}{1:F2}{2:F2}", this.Center.x, this.Center.y, this.Center.z).GetHashCode();
+            }
+            
             public override bool Equals(object other)
             {
                 if(other is IVertex) return this.Equals(other as IVertex);
@@ -226,21 +220,18 @@ namespace UnityPaperModel
                 var f = other as Face;
                 if(f == null) return false;
 
+                // if(f.index == this.index) return true;
+
                 if(math.distance(this.Center, f.Center) < 0.001f) return true;
 
                 //Note not sure this is correct
-                return this.edges.GetHashCode() == f.edges.GetHashCode();
-                // foreach(var v in this.vertices)
-                // {
-                //     if(f.Contains(v) == false) return false;
-                // }
-                // return true;
+                // return this.edges.GetHashCode() == f.edges.GetHashCode();
+                foreach (var v in this.edges)
+                {
+                    if (f.Contains(v) == false) return false;
+                }
+                return true;
             }
-            // public override int GetHashCode()
-            // {
-            //     return string.Format("{0:F2}{1:F2}{2:F2}", this.Center.x, this.Center.y, this.Center.z).GetHashCode();
-            // }
-
             public void OnDrawGizmos()
             {
                 Gizmos.DrawSphere(this.Center, 0.01f);
@@ -252,9 +243,11 @@ namespace UnityPaperModel
                 }
 
             }
+
+            
         }
 
-        public class Edge:DefaultEdge
+        public class Edge : DefaultEdge
         {
             public override object Clone()
             {
@@ -263,12 +256,21 @@ namespace UnityPaperModel
 
         }
 
-        public static Matrix4x4 GetLocalRotationMatrix(Face from, Face to)
+        public static Matrix4x4 GetLocalRotationMatrix(Face from, Face to, bool normalOnly = false)
         {
-            var sharedEdge = from.GetSharedEdgeWith(to);
-            LogTool.AssertNotNull(sharedEdge);
+            var org = float3.zero;
+            var trans = Matrix4x4.identity;
+            var transback= Matrix4x4.identity;
 
-            var org = (sharedEdge.Vertex as VertexGraph.Vertex).Position;
+            if(normalOnly == false)
+            {
+                var sharedEdge = from.GetSharedEdgeWith(to);
+                LogTool.AssertNotNull(sharedEdge);
+
+                org = (sharedEdge.Vertex as VertexGraph.Vertex).Position;
+                trans = Matrix4x4.Translate(org);
+                transback = Matrix4x4.Translate(-org);
+            }
             var n1 = from.Normal;
             var n2 = to.Normal;
             var axis = math.cross(n2, n1);
@@ -276,7 +278,7 @@ namespace UnityPaperModel
             var cos = math.dot(n1, n2);
             var angle = math.acos(cos) * Mathf.Rad2Deg;
 
-            return Matrix4x4.Translate(org) * Matrix4x4.Rotate(Quaternion.AngleAxis(angle, axis)) * Matrix4x4.Translate(-org);
+            return trans * Matrix4x4.Rotate(Quaternion.AngleAxis(angle, axis)) * transback;
         }
 
         public static void CalculateLocalMatrix(DualGraph graph, Face node, HashSet<IVertex> visited)
@@ -307,7 +309,7 @@ namespace UnityPaperModel
             }
         }
 
-        public Face FindFaceContainsVertexOtherThan(Face face, VertexGraph.Edge edge)
+        public Face FindFaceSharesEdgeWith(Face face, VertexGraph.Edge edge)
         {
             foreach(var f in this.Vertices)
             {

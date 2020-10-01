@@ -37,18 +37,18 @@ namespace UnityPaperModel
             var v2 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
             var v3 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
             v1.Position = new float3(0,0,0);
-            v2.Position = new float3(1,0,0);
-            v3.Position = new float3(1,0,1);
+            v2.Position = new float3(1,0,1);
+            v3.Position = new float3(1,0,0);
 
             xzFace.AddEdge(new VertexGraph.Edge(){Vertex = v1, OtherVertex = v2});
             xzFace.AddEdge(new VertexGraph.Edge(){Vertex = v2, OtherVertex = v3});
             xzFace.AddEdge(new VertexGraph.Edge(){Vertex = v3, OtherVertex = v1});
             
             var start = this.mst.First() as DualGraph.Face;
-            // start.LocalMat = DualGraph.GetLocalRotationMatrix(xzFace, start);
+            var parent = DualGraph.GetLocalRotationMatrix(xzFace, start, true);
 
-            DualGraph.CalculateLocalMatrix(this.mst, this.mst.First() as DualGraph.Face, new HashSet<IVertex>());
-            DualGraph.FlatGraph(this.mst, this.mst.First() as DualGraph.Face, new HashSet<IVertex>(), Matrix4x4.identity);
+            DualGraph.CalculateLocalMatrix(this.mst, start, new HashSet<IVertex>());
+            DualGraph.FlatGraph(this.mst, start, new HashSet<IVertex>(), Matrix4x4.identity);
         }
 
         protected void AddMesh()
@@ -128,7 +128,7 @@ namespace UnityPaperModel
 
         protected void CheckFaceEdge(DualGraph.Face face, VertexGraph.Edge edge)
         {
-            var other = this.dualGraph.FindFaceContainsVertexOtherThan(face, edge);
+            var other = this.dualGraph.FindFaceSharesEdgeWith(face, edge);
             if(other != default)
             {
                 this.dualGraph.AddEdge(face, other);
