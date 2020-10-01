@@ -1,13 +1,9 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityTools;
 using UnityTools.Common;
 using UnityTools.Debuging;
-using UnityTools.Debuging.EditorTool;
 
 namespace UnityPaperModel
 {
@@ -34,16 +30,17 @@ namespace UnityPaperModel
             {
                 return new Vertex() { position = this.Position };
             }
+            public override bool Equals(object other)
+            {
+                if(other is IVertex) return this.Equals(other as IVertex);
+                return base.Equals(other);
+            }
 
             public bool Equals(IVertex other)
             {
                 var with = other as Vertex;
-                if(with != null)
-                {
-                    return math.distance(this.Position, with.Position) < 0.001f;
-                }
-
-                return false;
+                if(with == null) return false;
+                return math.distance(this.Position, with.Position) < 0.001f;
             }
 
             public override int GetHashCode()
@@ -55,11 +52,6 @@ namespace UnityPaperModel
         [System.Serializable]
         public class Edge : DefaultEdge
         {
-            public override int GetHashCode()
-            {
-                return 0;
-            }
-
             public override string ToString()
             {
                 return (this.Vertex as Vertex).Position + " " + (this.OtherVertex as Vertex).Position;
@@ -99,45 +91,69 @@ namespace UnityPaperModel
         }
         public class Face : IVertex
         {
-            public float3 Center => this.sum / (this.edges.Count()*2);
-
-            public List<VertexGraph.Edge> Edges => this.edges.ToList();
-            protected HashSet<VertexGraph.Edge> edges = new HashSet<VertexGraph.Edge>();
+            public float3 Center => this.center; 
+            protected HashSet<VertexGraph.Vertex> vertices = new HashSet<VertexGraph.Vertex>();
             protected float3 sum = float3.zero;
+            protected float3 center = float3.zero;
             
-            public void AddEdge(VertexGraph.Edge e)
+            public void AddVertex(VertexGraph.Vertex v)
             {
-                if(this.edges.Add(e))
+                if(this.vertices.Add(v))
                 {
-                    this.sum += (e.Vertex as VertexGraph.Vertex).Position;
-                    this.sum += (e.OtherVertex as VertexGraph.Vertex).Position;
+                    this.sum += v.Position;
                 }
+                this.center = this.sum / this.vertices.Count;
             }
-            public bool Contains(VertexGraph.Edge e)
+            public bool Contains(VertexGraph.Vertex v)
             {
-                // Debug.Log("searc " + e);
-                foreach(var le in this.edges)
-                {
-                    // Debug.Log(le);
-                    if(le.Equals(e)) return true;
-                }
+                return this.vertices.Contains(v);
+                // Debug.Log(v.GetHashCode());
+                // foreach(var vi in this.vertices)
+                // {
+                //     if(vi.Equals(v)) 
+                //     {
+                //         Debug.Log(vi.GetHashCode());
 
-                return false;
+                //         Debug.Log(this.vertices.Contains(v));
+
+                //         return true;
+                //     }
+                // }
+                // return false;
             }
             public object Clone()
             {
-                return new Face() { edges = this.edges.DeepCopy() };
+                var ret = new Face() { sum = this.sum };
+                foreach(var v in this.vertices)
+                {
+                    ret.vertices.Add(v.Clone() as VertexGraph.Vertex);
+                }
+                return ret;
+            }
+            public override bool Equals(object other)
+            {
+                if(other is IVertex) return this.Equals(other as IVertex);
+                return base.Equals(other);
             }
 
             public bool Equals(IVertex other)
             {
-                return math.distance((other as Face).Center, this.Center) < 0.0001f;
+                var f = other as Face;
+                if(f == null) return false;
+
+                if(math.distance(this.Center, f.Center) < 0.001f) return true;
+
+                //Note not sure this is correct
+                return this.vertices.GetHashCode() == f.vertices.GetHashCode();
+                // foreach(var v in this.vertices)
+                // {
+                //     if(f.Contains(v) == false) return false;
+                // }
+                // return true;
             }
             public override int GetHashCode()
             {
                 return string.Format("{0:F2}{1:F2}{2:F2}", this.Center.x, this.Center.y, this.Center.z).GetHashCode();
-                return base.GetHashCode();
-                return this.Center.GetHashCode();
             }
         }
 
@@ -146,18 +162,15 @@ namespace UnityPaperModel
 
         }
 
-        public Face FaceContainsVertexOtherThan(Face face, VertexGraph.Edge e)
+        public Face FindFaceContainsVertexOtherThan(Face face, VertexGraph.Vertex v1, VertexGraph.Vertex v2)
         {
             foreach(var f in this.Vertices)
             {
-                // Debug.Log("face " + f.Center);
-                if(f.Contains(e))
+                if(f != face && f.Contains(v1) && f.Contains(v2))
                 {
-                    if(f != face) return f;
+                    return f;
                 }
-
             }
-
             return default;
         }
         public void OnDrawGizmos()

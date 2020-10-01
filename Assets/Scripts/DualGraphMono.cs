@@ -11,7 +11,6 @@ using UnityTools.Debuging.EditorTool;
 
 namespace UnityPaperModel
 {
-    [ExecuteInEditMode]
     public class DualGraphMono : MonoBehaviour
     {
         [SerializeField] protected int2 index;
@@ -39,7 +38,7 @@ namespace UnityPaperModel
                 var e3 = this.graph.AddEdge(nv3, nv1) as VertexGraph.Edge;
 
 
-                this.AddFace(e1, e2, e3);
+                this.AddFace(nv1, nv2, nv3);
             }
 
             // var str = "";
@@ -72,23 +71,23 @@ namespace UnityPaperModel
             LogTool.Log("mesh v count " + mesh.vertices.Count());
         }
 
-        protected void AddFace(VertexGraph.Edge e1, VertexGraph.Edge e2, VertexGraph.Edge e3)
+        protected void AddFace(VertexGraph.Vertex v1, VertexGraph.Vertex v2, VertexGraph.Vertex v3)
         {                
             var face = this.dg.Factory.CreateVertex() as NewDualGraph.Face;
-            face.AddEdge(e1);
-            face.AddEdge(e2);
-            face.AddEdge(e3);
+            face.AddVertex(v1);
+            face.AddVertex(v2);
+            face.AddVertex(v3);
             this.dg.Add(face);
 
-            this.CheckFaceEdge(face, e1);
-            this.CheckFaceEdge(face, e2);
-            this.CheckFaceEdge(face, e3);
+            this.CheckFaceEdge(face, v1, v2);
+            this.CheckFaceEdge(face, v2, v3);
+            this.CheckFaceEdge(face, v3, v1);
 
         }
 
-        protected void CheckFaceEdge(NewDualGraph.Face face, VertexGraph.Edge e)
+        protected void CheckFaceEdge(NewDualGraph.Face face, VertexGraph.Vertex v1, VertexGraph.Vertex v2)
         {
-            var other = this.dg.FaceContainsVertexOtherThan(face, e);
+            var other = this.dg.FaceContainsVertexOtherThan(face, v1, v2);
             if(other != default)
             {
                 this.dg.AddEdge(face, other);
