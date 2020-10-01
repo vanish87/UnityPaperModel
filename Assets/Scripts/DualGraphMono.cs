@@ -14,20 +14,51 @@ namespace UnityPaperModel
     public class DualGraphMono : MonoBehaviour
     {
         [SerializeField] protected int2 index;
-        protected DualGraph dualGraph;
         protected VertexGraph graph;
-        protected NewDualGraph dg;
+        protected DualGraph dualGraph;
+        protected DualGraph mst;
+        protected DualGraph orgmst;
         protected void Start()
         {
             this.graph = new VertexGraph();
-            this.dg = new NewDualGraph();
+            this.dualGraph = new DualGraph();
 
-            var mesh = this.GetComponent<MeshFilter>().mesh;
+
+            //this.AddTest();
+            this.AddMesh();
+
+            this.mst = MinimumSpanningTree.Generate(this.dualGraph) as DualGraph;
+            this.orgmst = MinimumSpanningTree.Generate(this.dualGraph) as DualGraph;
+            LogTool.Log("dual count " + this.dualGraph.Vertices.Count());
+            LogTool.Log("mst count " + this.mst.Vertices.Count());
+
+            var xzFace = this.dualGraph.Factory.CreateVertex() as DualGraph.Face;
+            var v1 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
+            var v2 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
+            var v3 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
+            v1.Position = new float3(0,0,0);
+            v2.Position = new float3(1,0,0);
+            v3.Position = new float3(1,0,1);
+
+            xzFace.AddEdge(new VertexGraph.Edge(){Vertex = v1, OtherVertex = v2});
+            xzFace.AddEdge(new VertexGraph.Edge(){Vertex = v2, OtherVertex = v3});
+            xzFace.AddEdge(new VertexGraph.Edge(){Vertex = v3, OtherVertex = v1});
+            
+            var start = this.mst.First() as DualGraph.Face;
+            // start.LocalMat = DualGraph.GetLocalRotationMatrix(xzFace, start);
+
+            DualGraph.CalculateLocalMatrix(this.mst, this.mst.First() as DualGraph.Face, new HashSet<IVertex>());
+            DualGraph.FlatGraph(this.mst, this.mst.First() as DualGraph.Face, new HashSet<IVertex>(), Matrix4x4.identity);
+        }
+
+        protected void AddMesh()
+        {
+            var mesh = this.GetComponent<MeshFilter>().sharedMesh;
             for (var i = 0; i < mesh.triangles.Length; i += 3)
             {
                 var v1 = mesh.triangles[i];
-                var v2 = mesh.triangles[i+1];
-                var v3 = mesh.triangles[i+2];
+                var v2 = mesh.triangles[i + 1];
+                var v3 = mesh.triangles[i + 2];
 
                 var nv1 = this.AddVert(mesh.vertices[v1]);
                 var nv2 = this.AddVert(mesh.vertices[v2]);
@@ -38,59 +69,69 @@ namespace UnityPaperModel
                 var e3 = this.graph.AddEdge(nv3, nv1) as VertexGraph.Edge;
 
 
-                this.AddFace(nv1, nv2, nv3);
+                this.AddFace(e1, e2, e3);
             }
-
-            // var str = "";
-
-            // var eset = new HashSet<VertexGraph.Edge>();
-            // foreach(var f in this.dg.Vertices)
-            // {
-            //     foreach(var e in f.Edges)
-            //     {
-            //         eset.Add(e);
-            //         Debug.Log(e);
-            //         str += " " + e;
-            //     }
-            // }
-
-            // Debug.Log(eset.Count);
-            // Debug.Log(str);
-
-            // foreach(var face in this.dg.Vertices)
-            // {
-            //     var v1 = face.Edges[0];
-            //     var v2 = face.Edges[1];
-            //     var v3 = face.Edges[2];
-            //     this.CheckFaceEdge(face, v1);
-            //     this.CheckFaceEdge(face, v2);
-            //     this.CheckFaceEdge(face, v3);
-            // }
 
             LogTool.Log("v count " + this.graph.Vertices.Count());
             LogTool.Log("mesh v count " + mesh.vertices.Count());
         }
 
-        protected void AddFace(VertexGraph.Vertex v1, VertexGraph.Vertex v2, VertexGraph.Vertex v3)
-        {                
-            var face = this.dg.Factory.CreateVertex() as NewDualGraph.Face;
-            face.AddVertex(v1);
-            face.AddVertex(v2);
-            face.AddVertex(v3);
-            this.dg.Add(face);
+        protected void AddTest()
+        {
+            var nv1 = this.AddVert(new float3(0, 0, 0));
+            var nv2 = this.AddVert(new float3(1, 0, 1));
+            var nv3 = this.AddVert(new float3(1, 0, 0));
 
-            this.CheckFaceEdge(face, v1, v2);
-            this.CheckFaceEdge(face, v2, v3);
-            this.CheckFaceEdge(face, v3, v1);
+            var e1 = this.graph.AddEdge(nv1, nv2) as VertexGraph.Edge;
+            var e2 = this.graph.AddEdge(nv2, nv3) as VertexGraph.Edge;
+            var e3 = this.graph.AddEdge(nv3, nv1) as VertexGraph.Edge;
+
+
+            this.AddFace(e1, e2, e3);
+
+            nv1 = this.AddVert(new float3(0, 0, 0));
+            nv2 = this.AddVert(new float3(1, 0, 0));
+            nv3 = this.AddVert(new float3(1, 1, 0));
+
+            e1 = this.graph.AddEdge(nv1, nv2) as VertexGraph.Edge;
+            e2 = this.graph.AddEdge(nv2, nv3) as VertexGraph.Edge;
+            e3 = this.graph.AddEdge(nv3, nv1) as VertexGraph.Edge;
+
+
+            this.AddFace(e1, e2, e3);
+            
+            nv1 = this.AddVert(new float3(1, 0, 0));
+            nv2 = this.AddVert(new float3(2, 1, 0));
+            nv3 = this.AddVert(new float3(1, 1, 0));
+
+            e1 = this.graph.AddEdge(nv1, nv2) as VertexGraph.Edge;
+            e2 = this.graph.AddEdge(nv2, nv3) as VertexGraph.Edge;
+            e3 = this.graph.AddEdge(nv3, nv1) as VertexGraph.Edge;
+
+
+            this.AddFace(e1, e2, e3);
 
         }
 
-        protected void CheckFaceEdge(NewDualGraph.Face face, VertexGraph.Vertex v1, VertexGraph.Vertex v2)
+        protected void AddFace(VertexGraph.Edge e1, VertexGraph.Edge e2, VertexGraph.Edge e3)
+        {                
+            var face = this.dualGraph.Factory.CreateVertex() as DualGraph.Face;
+            face.AddEdge(e1);
+            face.AddEdge(e2);
+            face.AddEdge(e3);
+            this.dualGraph.Add(face);
+
+            this.CheckFaceEdge(face, e1);
+            this.CheckFaceEdge(face, e2);
+            this.CheckFaceEdge(face, e3);
+        }
+
+        protected void CheckFaceEdge(DualGraph.Face face, VertexGraph.Edge edge)
         {
-            var other = this.dg.FaceContainsVertexOtherThan(face, v1, v2);
+            var other = this.dualGraph.FindFaceContainsVertexOtherThan(face, edge);
             if(other != default)
             {
-                this.dg.AddEdge(face, other);
+                this.dualGraph.AddEdge(face, other);
             }
         }
 
@@ -106,8 +147,10 @@ namespace UnityPaperModel
         {
             using(new GizmosScope(Color.cyan, this.transform.localToWorldMatrix))
             {
-                this.dg?.OnDrawGizmos();
+                this.mst?.OnDrawGizmos();
             }
+
+            this.orgmst?.OnDrawGizmos();
         }
         // protected GraphAdj<DualGraph.Face, DualGraph.DualEdge> msp;
         // protected void Start()

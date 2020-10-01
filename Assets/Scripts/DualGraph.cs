@@ -112,7 +112,7 @@ namespace UnityPaperModel
                 return new Face();
             }
         }
-        public class Face : IVertex
+        public class Face : IndexVertex
         {
             public float3 Center => this.center; 
             public float3 Normal 
@@ -153,6 +153,24 @@ namespace UnityPaperModel
             }
             public void Transform(Matrix4x4 mat)
             {
+                this.TransformOrg(mat);
+                return;
+                this.newEdges.Clear();
+                foreach(var v in this.edges)
+                {
+                    var v1 = mat.MultiplyPoint((v.Vertex as VertexGraph.Vertex).Position);
+                    var v2 = mat.MultiplyPoint((v.OtherVertex as VertexGraph.Vertex).Position);
+                    var newEdge = new VertexGraph.Edge() 
+                    { 
+                        Vertex = new VertexGraph.Vertex() { Position = v1 }, 
+                        OtherVertex = new VertexGraph.Vertex() { Position = v2 } 
+                    };
+                    this.newEdges.Add(newEdge);
+                }
+            }
+
+            protected void TransformOrg(Matrix4x4 mat)
+            {
                 var old = new List<IEdge>();
                 foreach (var e in this.edges) old.Add(e.Clone() as IEdge);
                 this.edges.Clear(); 
@@ -188,7 +206,7 @@ namespace UnityPaperModel
                 // }
                 // return false;
             }
-            public object Clone()
+            public override object Clone()
             {
                 var ret = new Face() { sum = this.sum, center = this.center, localRotationMat = this.localRotationMat };
                 foreach(var v in this.edges)
@@ -203,7 +221,7 @@ namespace UnityPaperModel
                 return base.Equals(other);
             }
 
-            public bool Equals(IVertex other)
+            public override bool Equals(IVertex other)
             {
                 var f = other as Face;
                 if(f == null) return false;
@@ -218,10 +236,10 @@ namespace UnityPaperModel
                 // }
                 // return true;
             }
-            public override int GetHashCode()
-            {
-                return string.Format("{0:F2}{1:F2}{2:F2}", this.Center.x, this.Center.y, this.Center.z).GetHashCode();
-            }
+            // public override int GetHashCode()
+            // {
+            //     return string.Format("{0:F2}{1:F2}{2:F2}", this.Center.x, this.Center.y, this.Center.z).GetHashCode();
+            // }
 
             public void OnDrawGizmos()
             {
@@ -261,7 +279,7 @@ namespace UnityPaperModel
             var dir = math.normalize(from.Center - to.Center);
             var dirAngle = math.dot(n1, dir);
 
-            if (dirAngle > 0) angle = 360 - angle;
+            if (dirAngle > 0) axis = -axis;
             var mat = Matrix4x4.Translate(-org) * Matrix4x4.Rotate(Quaternion.AngleAxis(angle, axis)) * Matrix4x4.Translate(org);
 
             //mat = Matrix4x4.Rotate(Quaternion.AngleAxis(45, new float3(-1, 0, 0)));
@@ -288,11 +306,11 @@ namespace UnityPaperModel
             if(visited.Contains(node)) return;
             visited.Add(node);
 
-            node.Transform(node.LocalMat * parent);
+            node.Transform(parent * node.LocalMat);
 
             foreach(Face next in graph.GetNeighborVertices(node))            
             {
-                FlatGraph(graph, next, visited, node.LocalMat * parent);
+                FlatGraph(graph, next, visited, parent * node.LocalMat);
             }
         }
 
