@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using Unity.Mathematics;
 using UnityEngine;
@@ -74,7 +73,17 @@ namespace UnityPaperModel
 
         public class Edge : DefaultEdge
         {
-            public override object Clone()
+            public float Length
+            {
+                get
+                {
+                    var v1 = (this.Vertex as Vertex).Position;
+                    var v2 = (this.OtherVertex as Vertex).Position;
+
+                    return math.distance(v1, v2);
+                }
+            }
+           public override object Clone()
             {
                 return new Edge(){ isDirectional = this.IsDirectional, Vertex = this.Vertex.Clone() as IVertex, OtherVertex = this.OtherVertex.Clone() as IVertex };
             }
@@ -82,14 +91,6 @@ namespace UnityPaperModel
             {
                 return (this.Vertex as Vertex).Position + " " + (this.OtherVertex as Vertex).Position;
             }
-        }
-
-        public static float3 GetNormal(IEdge e1, IEdge e2)
-        {
-            var v1 = (e1.OtherVertex as VertexGraph.Vertex).Position - (e1.Vertex as VertexGraph.Vertex).Position;
-            var v2 = (e2.OtherVertex as VertexGraph.Vertex).Position - (e2.Vertex as VertexGraph.Vertex).Position;
-
-            return math.normalize(math.cross(v1,v2));
         }
 
         public void OnDrawGizmos()
@@ -136,7 +137,6 @@ namespace UnityPaperModel
 
             public Matrix4x4 LocalMat { get => this.localRotationMat; set => this.localRotationMat = value; }
             protected HashSet<IEdge> edges = new HashSet<IEdge>();
-            protected HashSet<IEdge> newEdges = new HashSet<IEdge>();
             protected float3 sum = float3.zero;
             protected float3 center = float3.zero;
             protected float3 normal = float3.zero;
@@ -160,29 +160,23 @@ namespace UnityPaperModel
                 }
                 return default;                
             }
-            public void Transform(Matrix4x4 mat)
-            {
-                this.TransformOrg(mat);
-                return;
-                this.newEdges.Clear();
-                foreach(var v in this.edges)
-                {
-                    var v1 = mat.MultiplyPoint((v.Vertex as VertexGraph.Vertex).Position);
-                    var v2 = mat.MultiplyPoint((v.OtherVertex as VertexGraph.Vertex).Position);
-                    var newEdge = new VertexGraph.Edge() 
-                    { 
-                        Vertex = new VertexGraph.Vertex() { Position = v1 }, 
-                        OtherVertex = new VertexGraph.Vertex() { Position = v2 } 
-                    };
-                    this.newEdges.Add(newEdge);
-                }
-            }
 
-            protected void TransformOrg(Matrix4x4 mat)
+            public float2 GetMinMaxEdgeLength()
+            {
+                var ret = new float2(float.MaxValue, 0);
+                foreach(var e in this.edges)
+                {
+                    var len =(e as VertexGraph.Edge).Length;
+                    ret.x = len < ret.x ? len : ret.x;
+                    ret.y = len > ret.y ? len : ret.y;
+                }
+
+                return ret;
+            }
+            public void Transform(Matrix4x4 mat)
             {
                 this.sum = 0;
                 this.center = 0;
-
                 
                 foreach(var v in edges)
                 {
@@ -194,8 +188,7 @@ namespace UnityPaperModel
                 }
                 foreach (VertexGraph.Edge e in this.edges) this.sum += (e.Vertex as VertexGraph.Vertex).Position + (e.OtherVertex as VertexGraph.Vertex).Position;
                 this.center = this.sum / (this.edges.Count * 2);
-
-                //this.normal = mat.MultiplyVector(this.normal);
+                this.normal = mat.MultiplyVector(this.normal);
             }
             public bool ContainsGeometryEdge(IEdge v)
             {
@@ -230,27 +223,13 @@ namespace UnityPaperModel
 
             public override bool Equals(IVertex other)
             {
-                var f = other as Face;
-                if(f == null) return false;
                 return base.Equals(other);
-
-                // if(f.index == this.index) return true;
-
-                // if(math.distance(this.Center, f.Center) < 0.001f) return true;
-
-                //Note not sure this is correct
-                // return this.edges.GetHashCode() == f.edges.GetHashCode();
-                // foreach (var v in this.edges)
-                // {
-                    // if (f.ContainsGeometryEdge(v) == false) return false;
-                // }
-                // return true;
             }
             public void OnDrawGizmos()
             {
                 var c= Expand(this.Center);
-                //Gizmos.DrawSphere(c, 0.01f);
-                //Gizmos.DrawLine(c, c + this.Normal);
+                Gizmos.DrawSphere(c, 0.01f);
+                Gizmos.DrawLine(c, c + this.Normal);
 
                 foreach(var e in this.edges)
                 {
@@ -268,11 +247,11 @@ namespace UnityPaperModel
             
         }
 
-        public class Edge : DefaultEdge
+        public class Edge : DefaultEdge, IWeightedEdge
         {
-            public Face face1;
-            public Face face2;
-            // protected float 
+            public float Weight { get => this.weight; set => this.weight = value; }
+            protected float weight = 0;
+
             public override object Clone()
             {
                 return new Edge(){ isDirectional = this.IsDirectional, Vertex = this.Vertex.Clone() as IVertex, OtherVertex = this.OtherVertex.Clone() as IVertex };
@@ -282,9 +261,13 @@ namespace UnityPaperModel
 
         public void UpdateWeight()
         {
+            var globalMinMax = GetMinMaxGeoEdgeLength(this);
             foreach(var e in this.Edges)
             {
-
+                var from = e.Vertex as Face;
+                var to = e.Vertex as Face;
+                var sharedEdge = from.GetSharedEdgeWith(to) as VertexGraph.Edge;
+                e.Weight = 1 - (sharedEdge.Length - globalMinMax.x) / (globalMinMax.y - globalMinMax.x);
             }
 
         }
@@ -352,6 +335,19 @@ namespace UnityPaperModel
                 }
             }
             return default;
+        }
+
+        public static float2 GetMinMaxGeoEdgeLength(DualGraph graph)
+        {
+            var ret = new float2(float.MaxValue, 0);
+
+            foreach(var face in graph.Vertices)
+            {
+                var len = face.GetMinMaxEdgeLength();
+                ret.x = len.x < ret.x ? len.x : ret.x;
+                ret.y = len.y > ret.y ? len.y : ret.y;
+            }
+            return ret;
         }
 
         public void OnDrawGizmos()
