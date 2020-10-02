@@ -27,7 +27,34 @@ namespace UnityPaperModel
                 return new Vertex();
             }
         }
-        [System.Serializable]
+        public class CloseVertex : IVertex
+        {
+            public float3 Position { get => this.position; set => this.position = value; }
+            protected float3 position;
+            public object Clone()
+            {
+                return new CloseVertex() { position = this.position };
+            }
+
+            public bool Equals(IVertex other)
+            {
+                var obj = other as CloseVertex;
+                if(obj == null) return false;
+
+                return math.distancesq(this.position, obj.position) < 0.001f;
+            }
+
+            public override bool Equals(object other)
+            {
+                if(other is IVertex) return this.Equals(other as IVertex);
+                return base.Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                return string.Format("{0:F2}{1:F2}{2:F2}", this.Position.x, this.Position.y, this.Position.z).GetHashCode();
+            }
+        }
         public class Vertex : IVertex
         {
             public float3 Position { get => this.position; set => this.position = value; }
@@ -36,26 +63,15 @@ namespace UnityPaperModel
             {
                 return new Vertex() { position = this.Position };
             }
-            public override bool Equals(object other)
-            {
-                if(other is IVertex) return this.Equals(other as IVertex);
-                return base.Equals(other);
-            }
 
             public virtual bool Equals(IVertex other)
             {
-                var with = other as Vertex;
-                if(with == null) return false;
-                return math.distance(this.Position, with.Position) < 0.001f;
+                return math.distance(this.Position, (other as Vertex).Position) < 0.001f;
+                //return base.Equals(other);
             }
-
-            public override int GetHashCode()
-            {
-                return string.Format("{0:F2}{1:F2}{2:F2}", this.Position.x, this.Position.y, this.Position.z).GetHashCode();
-            }
+            
         }
 
-        [System.Serializable]
         public class Edge : DefaultEdge
         {
             public override object Clone()
@@ -115,23 +131,15 @@ namespace UnityPaperModel
         }
         public class Face : IndexVertex
         {
-            public float3 Center => this.center; 
-            public float3 Normal 
-            {
-                get
-                {
-                    var e1 = this.edges.First();
-                    var e2 = this.edges.Last();
-
-                    return VertexGraph.GetNormal(e2, e1);
-                }
-            }
+            public float3 Center => this.center;
+            public float3 Normal { get => this.normal; internal set => this.normal = value; }
 
             public Matrix4x4 LocalMat { get => this.localRotationMat; set => this.localRotationMat = value; }
             protected HashSet<IEdge> edges = new HashSet<IEdge>();
             protected HashSet<IEdge> newEdges = new HashSet<IEdge>();
             protected float3 sum = float3.zero;
             protected float3 center = float3.zero;
+            protected float3 normal = float3.zero;
             protected Matrix4x4 localRotationMat = Matrix4x4.identity;
             
             public void AddEdge(VertexGraph.Edge e)
@@ -148,7 +156,7 @@ namespace UnityPaperModel
             {
                 foreach(var e in this.edges)
                 {
-                    if(face.Contains(e)) return e;
+                    if(face.ContainsGeometryEdge(e)) return e;
                 }
                 return default;                
             }
@@ -172,41 +180,46 @@ namespace UnityPaperModel
 
             protected void TransformOrg(Matrix4x4 mat)
             {
-                var old = new List<IEdge>();
-                foreach (var e in this.edges) old.Add(e.Clone() as IEdge);
-                this.edges.Clear(); 
                 this.sum = 0;
                 this.center = 0;
+
                 
-                foreach(var v in old)
+                foreach(var v in edges)
                 {
-                    var v1 = mat.MultiplyPoint((v.Vertex as VertexGraph.Vertex).Position);
-                    var v2 = mat.MultiplyPoint((v.OtherVertex as VertexGraph.Vertex).Position);
-                    var newEdge = new VertexGraph.Edge() 
-                    { 
-                        Vertex = new VertexGraph.Vertex() { Position = v1 }, 
-                        OtherVertex = new VertexGraph.Vertex() { Position = v2 } 
-                    };
-                    this.AddEdge(newEdge);
+                    var from = v.Vertex as VertexGraph.Vertex;
+                    var to = v.OtherVertex as VertexGraph.Vertex;
+
+                    from.Position = mat.MultiplyPoint(from.Position);
+                    to.Position = mat.MultiplyPoint(to.Position);                   
                 }
+                foreach (VertexGraph.Edge e in this.edges) this.sum += (e.Vertex as VertexGraph.Vertex).Position + (e.OtherVertex as VertexGraph.Vertex).Position;
+                this.center = this.sum / (this.edges.Count * 2);
+
+                //this.normal = mat.MultiplyVector(this.normal);
             }
-            public bool Contains(IEdge v)
+            public bool ContainsGeometryEdge(IEdge v)
             {
                 return this.edges.Contains(v);
             }
             public override object Clone()
             {
-                var ret = new Face() { sum = this.sum, center = this.center, localRotationMat = this.localRotationMat };
-                foreach(var v in this.edges)
+                var ret = new Face()
                 {
-                    ret.edges.Add(v.Clone() as IEdge);
-                }
+                    index = this.index,
+                    sum = this.sum,
+                    center = this.center,
+                    localRotationMat = this.localRotationMat,
+                    normal = this.normal,
+                    edges = new HashSet<IEdge>(this.edges.Select(e => e.Clone() as IEdge))
+                };
+                
+
                 return ret;
             }
             public override int GetHashCode()
             {
                 return base.GetHashCode();
-            //  return string.Format("{0:F2}{1:F2}{2:F2}", this.Center.x, this.Center.y, this.Center.z).GetHashCode();
+                // return string.Format("{0:F2}{1:F2}{2:F2}", this.Center.x, this.Center.y, this.Center.z).GetHashCode();
             }
             
             public override bool Equals(object other)
@@ -219,39 +232,59 @@ namespace UnityPaperModel
             {
                 var f = other as Face;
                 if(f == null) return false;
+                return base.Equals(other);
 
                 // if(f.index == this.index) return true;
 
-                if(math.distance(this.Center, f.Center) < 0.001f) return true;
+                // if(math.distance(this.Center, f.Center) < 0.001f) return true;
 
                 //Note not sure this is correct
                 // return this.edges.GetHashCode() == f.edges.GetHashCode();
-                foreach (var v in this.edges)
-                {
-                    if (f.Contains(v) == false) return false;
-                }
-                return true;
+                // foreach (var v in this.edges)
+                // {
+                    // if (f.ContainsGeometryEdge(v) == false) return false;
+                // }
+                // return true;
             }
             public void OnDrawGizmos()
             {
-                Gizmos.DrawSphere(this.Center, 0.01f);
-                Gizmos.DrawLine(this.Center, this.Center + this.Normal);
+                var c= Expand(this.Center);
+                //Gizmos.DrawSphere(c, 0.01f);
+                //Gizmos.DrawLine(c, c + this.Normal);
 
                 foreach(var e in this.edges)
                 {
-                    Gizmos.DrawLine((e.Vertex as VertexGraph.Vertex).Position, (e.OtherVertex as VertexGraph.Vertex).Position);
+                    var v1 = (e.Vertex as VertexGraph.Vertex).Position;
+                    var v2 =  (e.OtherVertex as VertexGraph.Vertex).Position;
+                    Gizmos.DrawLine(Expand(v1), Expand(v2));
                 }
 
             }
 
+            protected float3 Expand(float3 v)
+            {
+                return v + normal * 0;
+            }
             
         }
 
         public class Edge : DefaultEdge
         {
+            public Face face1;
+            public Face face2;
+            // protected float 
             public override object Clone()
             {
                 return new Edge(){ isDirectional = this.IsDirectional, Vertex = this.Vertex.Clone() as IVertex, OtherVertex = this.OtherVertex.Clone() as IVertex };
+            }
+
+        }
+
+        public void UpdateWeight()
+        {
+            foreach(var e in this.Edges)
+            {
+
             }
 
         }
@@ -313,7 +346,7 @@ namespace UnityPaperModel
         {
             foreach(var f in this.Vertices)
             {
-                if(f != face && f.Contains(edge))
+                if(f != face && f.ContainsGeometryEdge(edge))
                 {
                     return f;
                 }
