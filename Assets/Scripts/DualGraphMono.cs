@@ -38,6 +38,10 @@ namespace UnityPaperModel
             LogTool.Log("mst e count " + this.mst.Edges.Count());
 
 
+            LogTool.Log("dual circle " + GraphTools.HasCircle(this.dualGraph.Edges).ToString());
+            LogTool.Log("mst circle " + GraphTools.HasCircle(this.mst.Edges).ToString());
+
+
             var xzFace = this.dualGraph.Factory.CreateVertex() as DualGraph.Face;
             var v1 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
             var v2 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
