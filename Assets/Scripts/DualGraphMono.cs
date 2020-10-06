@@ -22,6 +22,10 @@ namespace UnityPaperModel
 
         public List<DualGraph.Face> faces;
         public List<DualGraph.Edge> edges;
+
+        public List<(DualGraph.Face, DualGraph.Face)> overlap = new List<(DualGraph.Face, DualGraph.Face)>();
+        public HashSet<Path> paths = new HashSet<Path>();
+        public List<DualGraph> noOverlap = new List<DualGraph>();
         protected void Start()
         {
             this.graph = new VertexGraph();
@@ -31,50 +35,162 @@ namespace UnityPaperModel
             // this.AddTest();
             this.AddMesh();
 
-            this.mst = MinimumSpanningTree.Generate(this.dualGraph) as DualGraph;
+            this.dualGraph.UpdateWeight(new float3(0, 1, 0), 1);
+            this.mst = MinimumSpanningTree.KruskalMST(this.dualGraph) as DualGraph;
             this.orgmst = MinimumSpanningTree.Generate(this.dualGraph) as DualGraph;
             LogTool.Log("dual count " + this.dualGraph.Vertices.Count());
             LogTool.Log("mst count " + this.mst.Vertices.Count());
             LogTool.Log("mst e count " + this.mst.Edges.Count());
 
 
-            LogTool.Log("dual circle " + GraphTools.HasCircle(this.dualGraph.Edges).ToString());
-            LogTool.Log("mst circle " + GraphTools.HasCircle(this.mst.Edges).ToString());
+            LogTool.Log("dual circle " + GraphTools.HasCircle(this.dualGraph).ToString());
+            LogTool.Log("mst circle " + GraphTools.HasCircle(this.mst).ToString());
 
 
-            var xzFace = this.dualGraph.Factory.CreateVertex() as DualGraph.Face;
-            var v1 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
-            var v2 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
-            var v3 = this.graph.Factory.CreateVertex() as VertexGraph.Vertex;
-            v1.Position = new float3(0,0,0);
-            v2.Position = new float3(1,0,1);
-            v3.Position = new float3(1,0,0);
 
-            xzFace.AddEdge(new VertexGraph.Edge(){Vertex = v1, OtherVertex = v2});
-            xzFace.AddEdge(new VertexGraph.Edge(){Vertex = v2, OtherVertex = v3});
-            xzFace.AddEdge(new VertexGraph.Edge(){Vertex = v3, OtherVertex = v1});
-            
             var start = this.mst.First() as DualGraph.Face;
-            var parent = DualGraph.GetLocalRotationMatrix(xzFace, start, true);
+            var up = new float3(0,1,0);
+            var axis = math.normalize(math.cross(start.Normal, up));
+            var angle = math.acos(math.dot(up, start.Normal));
+            var parent = Matrix4x4.Rotate(Quaternion.AngleAxis(angle*Mathf.Rad2Deg, axis));
 
             DualGraph.CalculateLocalMatrix(this.mst, start, new HashSet<IVertex>());
-            DualGraph.FlatGraph(this.mst, start, new HashSet<IVertex>(), Matrix4x4.identity);
+            DualGraph.FlatGraph(this.mst, start, new HashSet<IVertex>(), parent);
+
+            this.mst.MoveToYZero();
+            this.overlap = this.mst.GetOverlapFace();
 
             this.faces = this.mst.Vertices.ToList();
             this.edges = this.mst.Edges.ToList();
+
+
+            this.GeneratePathSet();
+            this.GenerateMinimumSetCover();
+
+        }
+
+        protected void GeneratePathSet()
+        {
+            foreach(var (from, to) in this.overlap)
+            {
+                var path = GraphTools.GetPath(this.mst, from, to) as Path;
+                if(path != null) this.paths.Add(path);
+            }
+        }
+
+        protected void GenerateMinimumSetCover()
+        {
+            var universe = new HashSet<MinimumSetCover.ICost>();
+            var from = new HashSet<ISet<MinimumSetCover.ICost>>();
+            foreach(var p in this.paths)
+            {
+                var edges = new HashSet<MinimumSetCover.ICost>();
+                for(var i = 1; i < p.Count; ++i)
+                {
+                    var edge = this.mst.GetEdge(p[i-1], p[i]);
+                    edges.Add(edge as MinimumSetCover.ICost);
+                    universe.Add(edge as MinimumSetCover.ICost);
+                }
+                var set = new HashSet<MinimumSetCover.ICost>(edges);
+                from.Add(set);
+            }
+            var ret = new HashSet<IEdge>();
+
+            var pathSet = MinimumSetCover.GetMinimunSetCover(universe, from, 
+            (u, i, cost)=>
+            {                    
+                var candidateEdge = default(MinimumSetCover.ICost);
+                var candidateMinEdge = default(MinimumSetCover.ICost);
+                var candidate = default(ISet<MinimumSetCover.ICost>);
+                foreach (var p in cost.Keys)
+                {
+                    foreach (var minEdge in i.OrderBy(e => e.Cost))
+                    {
+                        if(p.Contains(minEdge))
+                        {
+                            candidateEdge = minEdge;
+                            break;
+                        }
+                    }
+                    if(candidateEdge != default)
+                    {
+                        candidate = p;
+                        break;
+                    } 
+
+                    var localMin = p.OrderBy(pe => pe.Cost).First();
+                    if (candidateMinEdge == default || localMin.Cost < candidateMinEdge.Cost)
+                    {
+                        candidateMinEdge = localMin;
+                    }
+                }
+                
+                if(candidateEdge != default)
+                {
+                    ret.Add(candidateEdge as IEdge);
+                }
+                else
+                if(candidateMinEdge != default)
+                {
+                    ret.Add(candidateMinEdge as IEdge);
+                    candidate = cost.Keys.Where(p=>p.Contains(candidateMinEdge)).First();
+                }
+
+                LogTool.AssertNotNull(candidate);
+
+                return candidate;
+            }
+            );
+
+
+            foreach(var e in ret)
+            {
+                LogTool.Log(e.ToString());
+                this.mst.Remove(e);
+            }
+
+            foreach(var e in ret)
+            {
+                var ng = MinimumSpanningTree.Generate(this.mst, e.Vertex);
+                var same = false;
+                foreach (var g in this.noOverlap)
+                {
+                    if (g.SetEquals(ng))
+                    {
+                        same = true;
+                        break;
+                    }
+                }
+                if(!same)this.noOverlap.Add(ng as DualGraph);
+
+                same = false;
+                ng = MinimumSpanningTree.Generate(this.mst, e.OtherVertex);
+                foreach (var g in this.noOverlap)
+                {
+                    if (g.SetEquals(ng))
+                    {
+                        same = true;
+                        break;
+                    }
+                }
+                if(!same)this.noOverlap.Add(ng as DualGraph);
+            }
+
+
+            
         }
 
         protected VertexGraph.Vertex GetVertex(VertexCombine g, float3 position)
         {
             var nv = new VertexGraph.CloseVertex();
             nv.Position = position;
-            if(g.ContainsKey(nv)) return g[nv];
+            if (g.ContainsKey(nv)) return g[nv];
 
             var nmv = new VertexGraph.Vertex();
             nmv.Position = position;
-            g.Add(nv,nmv);
+            g.Add(nv, nmv);
 
-            return nmv; 
+            return nmv;
         }
 
         protected void AddMesh()
@@ -95,7 +211,7 @@ namespace UnityPaperModel
                 var e2 = this.graph.AddEdge(nv2, nv3) as VertexGraph.Edge;
                 var e3 = this.graph.AddEdge(nv3, nv1) as VertexGraph.Edge;
 
-                var normal = math.normalize(math.cross(nv2.Position-nv1.Position, nv3.Position-nv1.Position));
+                var normal = math.normalize(math.cross(nv2.Position - nv1.Position, nv3.Position - nv1.Position));
 
 
                 this.AddFace(e1, e2, e3, normal);
@@ -109,9 +225,9 @@ namespace UnityPaperModel
         protected void AddTest()
         {
             var combined = new VertexCombine();
-            var nv1 = this.AddVert(this.GetVertex(combined,new float3(0, 0, 0)));
-            var nv2 = this.AddVert(this.GetVertex(combined,new float3(1, 0, 1)));
-            var nv3 = this.AddVert(this.GetVertex(combined,new float3(1, 0, 0)));
+            var nv1 = this.AddVert(this.GetVertex(combined, new float3(0, 0, 0)));
+            var nv2 = this.AddVert(this.GetVertex(combined, new float3(1, 0, 1)));
+            var nv3 = this.AddVert(this.GetVertex(combined, new float3(1, 0, 0)));
 
             var e1 = this.graph.AddEdge(nv1, nv2) as VertexGraph.Edge;
             var e2 = this.graph.AddEdge(nv2, nv3) as VertexGraph.Edge;
@@ -122,32 +238,35 @@ namespace UnityPaperModel
 
             this.AddFace(e1, e2, e3, normal);
 
-            nv1 = this.AddVert(this.GetVertex(combined,new float3(0, 0, 0)));
-            nv2 = this.AddVert(this.GetVertex(combined,new float3(1, 0, 0)));
-            nv3 = this.AddVert(this.GetVertex(combined,new float3(1, 1, 0)));
+            nv1 = this.AddVert(this.GetVertex(combined, new float3(0, 0, 0)));
+            nv2 = this.AddVert(this.GetVertex(combined, new float3(1, 0, 0)));
+            nv3 = this.AddVert(this.GetVertex(combined, new float3(1, 1, 0)));
 
             e1 = this.graph.AddEdge(nv1, nv2) as VertexGraph.Edge;
             e2 = this.graph.AddEdge(nv2, nv3) as VertexGraph.Edge;
             e3 = this.graph.AddEdge(nv3, nv1) as VertexGraph.Edge;
 
 
+
+            normal = math.normalize(math.cross(nv2.Position - nv1.Position, nv3.Position - nv1.Position));
             this.AddFace(e1, e2, e3, normal);
-            
-            nv1 = this.AddVert(this.GetVertex(combined,new float3(1, 0, 0)));
-            nv2 = this.AddVert(this.GetVertex(combined,new float3(2, 1, 0)));
-            nv3 = this.AddVert(this.GetVertex(combined,new float3(1, 1, 0)));
+
+            nv1 = this.AddVert(this.GetVertex(combined, new float3(1, 0, 0)));
+            nv2 = this.AddVert(this.GetVertex(combined, new float3(2, 1, 0)));
+            nv3 = this.AddVert(this.GetVertex(combined, new float3(1, 1, 0)));
 
             e1 = this.graph.AddEdge(nv1, nv2) as VertexGraph.Edge;
             e2 = this.graph.AddEdge(nv2, nv3) as VertexGraph.Edge;
             e3 = this.graph.AddEdge(nv3, nv1) as VertexGraph.Edge;
 
 
+            normal = math.normalize(math.cross(nv2.Position - nv1.Position, nv3.Position - nv1.Position));
             this.AddFace(e1, e2, e3, normal);
 
         }
 
         protected void AddFace(VertexGraph.Edge e1, VertexGraph.Edge e2, VertexGraph.Edge e3, float3 normal)
-        {                
+        {
             var face = this.dualGraph.Factory.CreateVertex() as DualGraph.Face;
             face.AddEdge(e1);
             face.AddEdge(e2);
@@ -171,7 +290,7 @@ namespace UnityPaperModel
         protected void CheckFaceEdge(DualGraph.Face face, VertexGraph.Edge edge)
         {
             var other = this.dualGraph.FindFaceSharesEdgeWith(face, edge);
-            if(other != default)
+            if (other != default)
             {
                 this.dualGraph.AddEdge(face, other);
             }
@@ -179,18 +298,56 @@ namespace UnityPaperModel
 
         protected VertexGraph.Vertex AddVert(VertexGraph.Vertex nv)
         {
-            if(this.graph.Contains(nv)) return this.graph.Where(v=>v.Equals(nv)).First() as VertexGraph.Vertex;
+            if (this.graph.Contains(nv)) return this.graph.Where(v => v.Equals(nv)).First() as VertexGraph.Vertex;
             var ret = this.graph.Add(nv);
             LogTool.AssertIsTrue(ret);
             return nv;
         }
 
+        public float offset = 20;
         protected void OnDrawGizmos()
         {
-            using(new GizmosScope(Color.cyan, this.transform.localToWorldMatrix))
+            using (new GizmosScope(Color.white, this.transform.localToWorldMatrix))
             {
                 this.mst?.OnDrawGizmos();
             }
+
+            foreach (var (f, other) in this.overlap)
+            {
+                // var (f, other) = this.overlap.First();
+                Gizmos.color = Color.red;
+                f.OnDrawGizmos();
+                Gizmos.color = Color.green;
+                other.OnDrawGizmos();
+            }
+
+            var b = 10f;
+            foreach (var g in this.noOverlap)
+            {
+                using (new GizmosScope(Color.magenta, Matrix4x4.Translate(new float3(0, 0, b += offset))))
+                {
+                    g.OnDrawGizmos();
+                }
+
+            }
+
+
+            using (new GizmosScope(Color.yellow, this.transform.localToWorldMatrix))
+            {
+                if (this.paths != null && this.paths.Count > 0)
+                {
+                    // foreach (var p in this.paths)
+                    var p = this.paths.First();
+                    {
+                        foreach (DualGraph.Face f in p)
+                        {
+                            f.OnDrawGizmos();
+                        }
+
+                    }
+                }
+            }
+
 
             // this.orgmst?.OnDrawGizmos();
         }
@@ -258,13 +415,13 @@ namespace UnityPaperModel
         //         {
         //             foreach (var n in this.msp.Nodes)
         //             {
-                         
+
         //                 Gizmos.DrawLine(n.newWorld[0], n.newWorld[1]);
         //                 Gizmos.DrawLine(n.newWorld[1], n.newWorld[2]);
         //                 Gizmos.DrawLine(n.newWorld[2], n.newWorld[0]);
         //             }
         //         }
- 
+
         //     }
         // }
 
@@ -366,7 +523,7 @@ namespace UnityPaperModel
         //     return ret;
         // }
 
-        
+
 
 
         // protected void FlatGraph(GraphAdj<DualGraph.Face, DualGraph.DualEdge> graph, DualGraph.Face node, HashSet<DualGraph.Face> visited)
@@ -382,7 +539,7 @@ namespace UnityPaperModel
         //          this.FlatGraph(graph, next, visited);
         //     }
 
-            
+
         // }
 
         // protected void MoveToUp(DualGraph.Face node)

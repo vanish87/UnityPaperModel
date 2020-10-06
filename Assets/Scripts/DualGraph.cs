@@ -2,8 +2,10 @@
 using System.Linq;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityTools.Algorithm;
 using UnityTools.Common;
 using UnityTools.Debuging;
+using UnityTools.Debuging.EditorTool;
 
 namespace UnityPaperModel
 {
@@ -54,7 +56,7 @@ namespace UnityPaperModel
                 return string.Format("{0:F2}{1:F2}{2:F2}", this.Position.x, this.Position.y, this.Position.z).GetHashCode();
             }
         }
-        public class Vertex : IVertex
+        public class Vertex : IVertex, IPoint
         {
             public float3 Position { get => this.position; set => this.position = value; }
             protected float3 position;
@@ -110,7 +112,7 @@ namespace UnityPaperModel
 
     }
 
-    public class DualGraph:NewGraph<DualGraph.Face, DualGraph.Edge, DualGraph.GraphFactory>
+    public class DualGraph : NewGraph<DualGraph.Face, DualGraph.Edge, DualGraph.GraphFactory>
     {
         public class GraphFactory : IGraphFactory
         {
@@ -178,21 +180,63 @@ namespace UnityPaperModel
                 this.sum = 0;
                 this.center = 0;
                 
-                foreach(var v in edges)
+                foreach(var v in this.edges)
                 {
                     var from = v.Vertex as VertexGraph.Vertex;
                     var to = v.OtherVertex as VertexGraph.Vertex;
 
                     from.Position = mat.MultiplyPoint(from.Position);
                     to.Position = mat.MultiplyPoint(to.Position);                   
+
+                    this.sum += from.Position + to.Position;
                 }
-                foreach (VertexGraph.Edge e in this.edges) this.sum += (e.Vertex as VertexGraph.Vertex).Position + (e.OtherVertex as VertexGraph.Vertex).Position;
                 this.center = this.sum / (this.edges.Count * 2);
                 this.normal = mat.MultiplyVector(this.normal);
+            }
+            public void FlatToYZero()
+            {
+                foreach(var e in this.edges)
+                {
+                    var from = e.Vertex as VertexGraph.Vertex;
+                    var to = e.OtherVertex as VertexGraph.Vertex;
+
+                    from.Position = new float3(from.Position.x, 0, from.Position.z);
+                    to.Position = new float3(to.Position.x, 0, to.Position.z);
+                }
+                this.center.y = 0;
             }
             public bool ContainsGeometryEdge(IEdge v)
             {
                 return this.edges.Contains(v);
+            }
+
+            public bool IsIntersectWith(Face other)
+            {
+                foreach (var e in this.edges)
+                {
+                    foreach(var o in other.edges)
+                    {
+                        if(e.Equals(o) || e == o) continue;
+                        if(e.Vertex.Equals(o.Vertex) || e.OtherVertex.Equals(o.OtherVertex)) continue;
+                        if(e.Vertex.Equals(o.OtherVertex) || e.OtherVertex.Equals(o.Vertex)) continue;
+
+                        var a1 = e.Vertex as IPoint;
+                        var a2 = e.OtherVertex as IPoint;
+                        var b1 = o.Vertex as IPoint;
+                        var b2 = o.OtherVertex as IPoint;
+
+                        var p1 = new float2(a1.Position.xz);
+                        var p2 = new float2(a2.Position.xz);
+                        var p3 = new float2(b1.Position.xz);
+                        var p4 = new float2(b2.Position.xz);
+
+                        if (GeometryTools.AreLinesIntersecting(p1, p2, p3, p4, false)) return true;
+
+                        // if (GeometryTools.AreLineSegmentsIntersectingDotProduct(a1.Position, a2.Position, b1.Position, b2.Position)) return true;
+                    }
+                }
+
+                return false;
             }
             public override object Clone()
             {
@@ -247,19 +291,23 @@ namespace UnityPaperModel
             
         }
 
-        public class Edge : DefaultEdge, IWeightedEdge
+        public class Edge : DefaultEdge, IWeightedEdge, MinimumSetCover.ICost
         {
             public float Weight { get => this.weight; set => this.weight = value; }
+
+            public float Cost => (1 - this.gamma) * (1 - this.Weight) + this.gamma;
+
             protected float weight = 0;
+            protected float gamma = 0.5f;
 
             public override object Clone()
             {
                 return new Edge(){ isDirectional = this.IsDirectional, Vertex = this.Vertex.Clone() as IVertex, OtherVertex = this.OtherVertex.Clone() as IVertex };
             }
-
+            
         }
-
-        public void UpdateWeight()
+    
+        public void UpdateWeight(float3 diriedDirection, float beta = 0.5f)
         {
             var globalMinMax = GetMinMaxGeoEdgeLength(this);
             foreach(var e in this.Edges)
@@ -267,9 +315,37 @@ namespace UnityPaperModel
                 var from = e.Vertex as Face;
                 var to = e.Vertex as Face;
                 var sharedEdge = from.GetSharedEdgeWith(to) as VertexGraph.Edge;
-                e.Weight = 1 - (sharedEdge.Length - globalMinMax.x) / (globalMinMax.y - globalMinMax.x);
+                var sharedDir = (sharedEdge.Vertex as VertexGraph.Vertex).Position - (sharedEdge.OtherVertex as VertexGraph.Vertex).Position;
+                e.Weight = (1 - beta) * this.GetM(sharedEdge.Length, globalMinMax) + beta * this.GetF(diriedDirection, sharedDir);
+            }
+        }
+
+        public List<(Face, Face)> GetOverlapFace()
+        {
+            var ret = new List<(Face, Face)>();
+
+
+            foreach(var v in this.Vertices)
+            {
+                foreach(var other in this.Vertices)
+                {
+                    if(v == other) continue;
+
+                    if(v.IsIntersectWith(other)) ret.Add((v, other));
+                }
             }
 
+            return ret;
+        }
+        
+
+        protected float GetM(float length, float2 minMax)
+        {
+            return 1 - (length - minMax.x) / (minMax.y - minMax.x);
+        }
+        protected float GetF(float3 dir, float3 edgeDir)
+        {
+            return math.abs(math.dot(dir, edgeDir)) / math.length(edgeDir);
         }
 
         public static Matrix4x4 GetLocalRotationMatrix(Face from, Face to, bool normalOnly = false)
@@ -325,6 +401,14 @@ namespace UnityPaperModel
             }
         }
 
+        public void MoveToYZero()
+        {
+            foreach(Face f in this)
+            {
+                f.FlatToYZero();                
+            }
+        }
+
         public Face FindFaceSharesEdgeWith(Face face, VertexGraph.Edge edge)
         {
             foreach(var f in this.Vertices)
@@ -352,16 +436,21 @@ namespace UnityPaperModel
 
         public void OnDrawGizmos()
         {
-            foreach(var v in this.Vertices)
+            using (new GizmosScope(Color.cyan, Matrix4x4.identity))
             {
-                v.OnDrawGizmos();
+                foreach (var v in this.Vertices)
+                {
+                    v.OnDrawGizmos();
+                }
             }
-
-            foreach (var e in this.Edges)
+            using (new GizmosScope(Color.blue, Matrix4x4.identity))
             {
-                var p1 = e.Vertex as Face;
-                var p2 = e.OtherVertex as Face;
-                Gizmos.DrawLine(p1.Center, p2.Center);
+                foreach (var e in this.Edges)
+                {
+                    var p1 = e.Vertex as Face;
+                    var p2 = e.OtherVertex as Face;
+                    Gizmos.DrawLine(p1.Center, p2.Center);
+                }
             }
         }
     }
