@@ -56,10 +56,15 @@ namespace UnityPaperModel
                 return string.Format("{0:F2}{1:F2}{2:F2}", this.Position.x, this.Position.y, this.Position.z).GetHashCode();
             }
         }
-        public class Vertex : IVertex, IPoint
+        public class Vertex : IVertex, IPoint, ProgressiveMesh.IVertex
         {
             public float3 Position { get => this.position; set => this.position = value; }
+            public float Cost { get => this.cost; set => this.cost = value; }
+            public ProgressiveMesh.Cost CostTo { get; set; }
+            public HashSet<IVertex> Face = new HashSet<IVertex>();
+
             protected float3 position;
+            protected float cost = -1;
             public virtual object Clone()
             {
                 return new Vertex() { position = this.Position };
@@ -70,7 +75,6 @@ namespace UnityPaperModel
                 return math.distance(this.Position, (other as Vertex).Position) < 0.001f;
                 //return base.Equals(other);
             }
-            
         }
 
         public class Edge : DefaultEdge
@@ -205,9 +209,17 @@ namespace UnityPaperModel
                 }
                 this.center.y = 0;
             }
-            public bool ContainsGeometryEdge(IEdge v)
+            public bool ContainsGeometryVertex(IVertex v)
             {
-                return this.edges.Contains(v);
+                foreach(var e in this.edges)
+                {
+                    if(e.Vertex.Equals(v) || e.OtherVertex.Equals(v)) return true;
+                }
+                return false;
+            }
+            public bool ContainsGeometryEdge(IEdge e)
+            {
+                return this.edges.Contains(e);
             }
 
             public bool IsIntersectWith(Face other)
@@ -420,6 +432,79 @@ namespace UnityPaperModel
             }
             return default;
         }
+
+
+        // public void SimplifiesToVerticeNum(int targetVert = 100)
+        // {
+        //     var vcount = this.Vertices.Count() * 3;
+        //     while(vcount > targetVert)
+        //     {
+        //         var next = this.GetMinCostEdge();
+        //         this.Collapse(next);
+        //         vcount = this.Vertices.Count() * 3;
+        //     }
+
+        // }
+
+        // protected IEdge GetMinCostEdge()
+        // {
+        //     var ret = default(VertexGraph.Edge);
+        //     foreach(var face in this.Vertices)
+        //     {
+        //         foreach(Face neighbor in this.GetNeighborVertices(face))
+        //         {
+        //             var sharedEdge = face.GetSharedEdgeWith(neighbor) as VertexGraph.Edge;
+        //             if(ret == default || sharedEdge.Cost
+                    
+        //         }
+        //     }
+
+
+        // }
+
+        // protected void Collapse(IEdge edge)
+        // {
+
+        // }
+
+        // protected float ComputeEdgeCollapseCost(IEdge edge)
+        // {
+        //     var ret = 0f;
+        //     var u = edge.Vertex as VertexGraph.Vertex;
+        //     var v = edge.OtherVertex as VertexGraph.Vertex;
+        //     var len = math.distance(u.Position, v.Position);
+
+        //     var uList = new HashSet<IVertex>();//sides
+        //     var uvList = new HashSet<IVertex>();
+        //     foreach(var face in this.Vertices)
+        //     {
+        //         if(face.ContainsGeometryVertex(u))
+        //         {
+        //             uList.Add(face);
+        //             if(face.ContainsGeometryVertex(v))
+        //             {
+        //                 uvList.Add(face);
+        //             }
+        //         }
+        //     }
+
+        //     foreach(DualGraph.Face uface in uList)
+        //     {
+        //         float mincurv = 1;
+        //         foreach(DualGraph.Face uvface in uvList)
+        //         {
+        //             float ndot = math.dot(uface.Normal, uvface.Normal);
+        //             mincurv = math.min(mincurv, (1 - ndot) / 2f);
+        //         }
+        //         ret = math.max(ret, mincurv);
+        //     }
+        //     ret = len * ret;
+
+        //     if(u.Cost > ret || u.Cost < 0) u.Cost = ret;
+        //     if(v.Cost > ret || v.Cost < 0) v.Cost = ret;
+
+        //     return ret;
+        // }
 
         public static float2 GetMinMaxGeoEdgeLength(DualGraph graph)
         {

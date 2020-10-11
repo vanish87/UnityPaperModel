@@ -26,16 +26,43 @@ namespace UnityPaperModel
         public List<(DualGraph.Face, DualGraph.Face)> overlap = new List<(DualGraph.Face, DualGraph.Face)>();
         public HashSet<Path> paths = new HashSet<Path>();
         public List<DualGraph> noOverlap = new List<DualGraph>();
+
+        public HalfEdgeTest.HGraph hgraph;
         protected void Start()
         {
             this.graph = new VertexGraph();
             this.dualGraph = new DualGraph();
 
+            this.hgraph = new HalfEdgeTest.HGraph();
+
 
             // this.AddTest();
             this.AddMesh();
 
-            this.dualGraph.UpdateWeight(new float3(0, 1, 0), 1);
+            var map = new Dictionary<IVertex, IVertex>();
+            foreach(var v in this.graph.Vertices)
+            {
+                var hv = this.hgraph.Factory.CreateVertex() as HalfEdgeTest.HGraph.V;
+                hv.Position = v.Position;
+                this.hgraph.AddVertex(hv);
+
+                if (map.ContainsKey(v)) continue;
+                map.Add(v, hv);
+            }
+
+            foreach(var e in this.graph.Edges)
+            {
+                var v1 = map[e.Vertex];
+                var v2 = map[e.OtherVertex];
+                this.hgraph.AddEdge(v1,v2);
+            }
+
+            var count = this.graph.Count;
+            ProgressiveMesh.CalculateVerticeWeight(this.graph);
+            //while (this.graph.Count > count * 0.5f) ProgressiveMesh.RemoveMinCostVertex(this.graph);
+            // while (this.graph.Count > 100) ProgressiveMesh.RemoveMinCostVertex(this.graph);
+
+            this.dualGraph.UpdateWeight(new float3(0, 1, 0), 0);
             this.mst = MinimumSpanningTree.KruskalMST(this.dualGraph) as DualGraph;
             this.orgmst = MinimumSpanningTree.Generate(this.dualGraph) as DualGraph;
             LogTool.Log("dual count " + this.dualGraph.Vertices.Count());
@@ -67,6 +94,18 @@ namespace UnityPaperModel
             this.GeneratePathSet();
             this.GenerateMinimumSetCover();
 
+
+            // Debug.Log(ProgressiveMesh.debug.Count);
+
+
+        }
+
+        protected void Update()
+        {
+            if(Input.GetKeyDown(KeyCode.C))
+            {
+                ProgressiveMesh.RemoveMinCostVertex(this.graph);
+            }
         }
 
         protected void GeneratePathSet()
@@ -102,11 +141,14 @@ namespace UnityPaperModel
                 var candidateEdge = default(MinimumSetCover.ICost);
                 var candidateMinEdge = default(MinimumSetCover.ICost);
                 var candidate = default(ISet<MinimumSetCover.ICost>);
-                foreach (var p in cost.Keys)
+                foreach (var orderedPath in cost.OrderBy(c=>c.Value/c.Key.Count))
                 {
+                    var p = orderedPath.Key;
+                    // if(p.IsSubsetOf(i)) continue;
+
                     foreach (var minEdge in i.OrderBy(e => e.Cost))
                     {
-                        if(p.Contains(minEdge))
+                        if(p.Contains(minEdge) && ret.Contains(minEdge as IEdge))
                         {
                             candidateEdge = minEdge;
                             break;
@@ -122,18 +164,18 @@ namespace UnityPaperModel
                     if (candidateMinEdge == default || localMin.Cost < candidateMinEdge.Cost)
                     {
                         candidateMinEdge = localMin;
+                        candidate = p;
                     }
                 }
                 
                 if(candidateEdge != default)
                 {
-                    ret.Add(candidateEdge as IEdge);
+                    // ret.Add(candidateEdge as IEdge);
                 }
                 else
                 if(candidateMinEdge != default)
                 {
                     ret.Add(candidateMinEdge as IEdge);
-                    candidate = cost.Keys.Where(p=>p.Contains(candidateMinEdge)).First();
                 }
 
                 LogTool.AssertNotNull(candidate);
@@ -176,6 +218,19 @@ namespace UnityPaperModel
                 if(!same)this.noOverlap.Add(ng as DualGraph);
             }
 
+            foreach(var g in this.noOverlap)
+            {
+                var bound = new Bounds();
+                foreach(var v in g.Vertices)
+                {
+                    bound.Encapsulate(v.Center);
+                }
+                foreach(var v in g.Vertices)
+                {
+                    v.Transform(Matrix4x4.Translate(-bound.center));
+                }
+
+            }
 
             
         }
@@ -193,10 +248,13 @@ namespace UnityPaperModel
             return nmv;
         }
 
+        public static Dictionary<(IVertex, IVertex, IVertex), float3> normals = new Dictionary<(IVertex, IVertex, IVertex), float3>();
         protected void AddMesh()
         {
+            normals.Clear();
             var combined = new VertexCombine();
             var mesh = this.GetComponent<MeshFilter>().sharedMesh;
+            mesh.Optimize();
             for (var i = 0; i < mesh.triangles.Length; i += 3)
             {
                 var v1 = mesh.triangles[i];
@@ -213,8 +271,14 @@ namespace UnityPaperModel
 
                 var normal = math.normalize(math.cross(nv2.Position - nv1.Position, nv3.Position - nv1.Position));
 
+                normals.Add((nv1,nv2,nv3), normal);
 
-                this.AddFace(e1, e2, e3, normal);
+                var f = this.AddFace(e1, e2, e3, normal);
+
+
+                nv1.Face.Add(f);
+                nv2.Face.Add(f);
+                nv3.Face.Add(f);
             }
 
             LogTool.Log("graph v count " + this.graph.Vertices.Count());
@@ -265,7 +329,7 @@ namespace UnityPaperModel
 
         }
 
-        protected void AddFace(VertexGraph.Edge e1, VertexGraph.Edge e2, VertexGraph.Edge e3, float3 normal)
+        protected IVertex AddFace(VertexGraph.Edge e1, VertexGraph.Edge e2, VertexGraph.Edge e3, float3 normal)
         {
             var face = this.dualGraph.Factory.CreateVertex() as DualGraph.Face;
             face.AddEdge(e1);
@@ -285,6 +349,9 @@ namespace UnityPaperModel
             this.CheckFaceEdge(face, e1);
             this.CheckFaceEdge(face, e2);
             this.CheckFaceEdge(face, e3);
+
+
+            return face;
         }
 
         protected void CheckFaceEdge(DualGraph.Face face, VertexGraph.Edge edge)
@@ -309,7 +376,7 @@ namespace UnityPaperModel
         {
             using (new GizmosScope(Color.white, this.transform.localToWorldMatrix))
             {
-                this.mst?.OnDrawGizmos();
+                this.hgraph?.OnDrawGizmos();
             }
 
             foreach (var (f, other) in this.overlap)
@@ -347,6 +414,13 @@ namespace UnityPaperModel
                     }
                 }
             }
+
+
+            // foreach(var (p,n) in ProgressiveMesh.debug)
+            // {
+            //     Gizmos.DrawSphere(p,0.01f);
+            //     Gizmos.DrawLine(p, p + (n * 0.1f));
+            // }
 
 
             // this.orgmst?.OnDrawGizmos();
