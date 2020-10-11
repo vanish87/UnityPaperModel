@@ -39,23 +39,23 @@ namespace UnityPaperModel
             // this.AddTest();
             this.AddMesh();
 
-            var map = new Dictionary<IVertex, IVertex>();
-            foreach(var v in this.graph.Vertices)
-            {
-                var hv = this.hgraph.Factory.CreateVertex() as HalfEdgeTest.HGraph.V;
-                hv.Position = v.Position;
-                this.hgraph.AddVertex(hv);
+            // var map = new Dictionary<IVertex, IVertex>();
+            // foreach(var v in this.graph.Vertices)
+            // {
+            //     var hv = this.hgraph.Factory.CreateVertex() as HalfEdgeTest.HGraph.V;
+            //     hv.Position = v.Position;
+            //     this.hgraph.AddVertex(hv);
 
-                if (map.ContainsKey(v)) continue;
-                map.Add(v, hv);
-            }
+            //     if (map.ContainsKey(v)) continue;
+            //     map.Add(v, hv);
+            // }
 
-            foreach(var e in this.graph.Edges)
-            {
-                var v1 = map[e.Vertex];
-                var v2 = map[e.OtherVertex];
-                this.hgraph.AddEdge(v1,v2);
-            }
+            // foreach(var e in this.graph.Edges)
+            // {
+            //     var v1 = map[e.Vertex];
+            //     var v2 = map[e.OtherVertex];
+            //     this.hgraph.AddEdge(v1,v2);
+            // }
 
             var count = this.graph.Count;
             ProgressiveMesh.CalculateVerticeWeight(this.graph);
@@ -105,6 +105,11 @@ namespace UnityPaperModel
             if(Input.GetKeyDown(KeyCode.C))
             {
                 ProgressiveMesh.RemoveMinCostVertex(this.graph);
+            }
+
+            if (Input.GetKeyDown(KeyCode.F))
+            {
+                this.AddEdgeToHGraph();
             }
         }
 
@@ -251,6 +256,25 @@ namespace UnityPaperModel
         public static Dictionary<(IVertex, IVertex, IVertex), float3> normals = new Dictionary<(IVertex, IVertex, IVertex), float3>();
         protected void AddMesh()
         {
+            // var map = new Dictionary<IVertex, IVertex>();
+
+            // foreach(var v in this.graph.Vertices)
+            // {
+            //     var hv = this.hgraph.Factory.CreateVertex() as HalfEdgeTest.HGraph.V;
+            //     hv.Position = v.Position;
+            //     this.hgraph.AddVertex(hv);
+
+            //     if (map.ContainsKey(v)) continue;
+            //     map.Add(v, hv);
+            // }
+
+            // foreach(var e in this.graph.Edges)
+            // {
+            //     var v1 = map[e.Vertex];
+            //     var v2 = map[e.OtherVertex];
+            //     this.hgraph.AddEdge(v1,v2);
+            // }
+            
             normals.Clear();
             var combined = new VertexCombine();
             var mesh = this.GetComponent<MeshFilter>().sharedMesh;
@@ -279,11 +303,41 @@ namespace UnityPaperModel
                 nv1.Face.Add(f);
                 nv2.Face.Add(f);
                 nv3.Face.Add(f);
+
+
+                this.AddEdgeToHGraph();
+
+
             }
 
             LogTool.Log("graph v count " + this.graph.Vertices.Count());
             LogTool.Log("graph e count " + this.graph.Edges.Count());
             LogTool.Log("mesh v count " + mesh.vertices.Count());
+        }
+
+        int mcount = 0;
+        protected void AddEdgeToHGraph()
+        {
+            var mesh = this.GetComponent<MeshFilter>().sharedMesh;
+            var v1 = mesh.triangles[mcount];
+            var v2 = mesh.triangles[mcount + 1];
+            var v3 = mesh.triangles[mcount + 2];
+            var hv1 = this.hgraph.Factory.CreateVertex() as HalfEdgeTest.HGraph.V;
+            var hv2 = this.hgraph.Factory.CreateVertex() as HalfEdgeTest.HGraph.V;
+            var hv3 = this.hgraph.Factory.CreateVertex() as HalfEdgeTest.HGraph.V;
+            hv1.Position = mesh.vertices[v1];
+            hv2.Position = mesh.vertices[v2];
+            hv3.Position = mesh.vertices[v3];
+            hv1 = this.hgraph.AddVertex(hv1) as HalfEdgeTest.HGraph.V;
+            hv2 = this.hgraph.AddVertex(hv2) as HalfEdgeTest.HGraph.V;
+            hv3 = this.hgraph.AddVertex(hv3) as HalfEdgeTest.HGraph.V;
+
+            this.hgraph.AddEdge(hv1, hv2);
+            this.hgraph.AddEdge(hv2, hv3);
+            this.hgraph.AddEdge(hv3, hv1);
+
+            this.mcount += 3;
+
         }
 
         protected void AddTest()
